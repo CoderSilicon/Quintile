@@ -1,5 +1,3 @@
-@import url("https://fonts.googleapis.com/css2?family=Nova+Square&display=swap");
-
 :root {
   --bg-color: #ffffff;
   --text-color: #333333;
@@ -7,7 +5,7 @@
   --input-border: #cccccc;
   --button-bg: #e0e0e0;
   --button-text: #333333;
-  --button-active-bg: #2a3742;
+  --button-active-bg: #2196f3;
   --button-active-text: #ffffff;
 }
 
@@ -18,11 +16,8 @@
   --input-border: #444444;
   --button-bg: #333333;
   --button-text: #f0f0f0;
-  --button-active-bg: #2a3742;
+  --button-active-bg: #2196f3;
   --button-active-text: #ffffff;
-  --bg-color: #181818;
-  --text-color: #ffffff;
-  --accent-color: #1e90ff;
 }
 
 body {
