@@ -60,8 +60,8 @@ const QRCodeGenerator: React.FC = () => {
       const ctx = canvas.getContext("2d");
       const img = new Image();
       img.onload = () => {
-        canvas.width = qrSize;
-        canvas.height = qrSize;
+        canvas.width = options.size;
+        canvas.height = options.size;
         ctx?.drawImage(img, 0, 0);
         const pngFile = canvas.toDataURL("image/png");
         const downloadLink = document.createElement("a");
@@ -83,7 +83,7 @@ const QRCodeGenerator: React.FC = () => {
         transition={{ duration: 0.5 }}
         className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold text-center mb-4 sm:mb-8 text-gray-900 dark:text-gray-100"
       >
-        QR Code Generator
+        Quintile - QR Code Generator
       </motion.h1>
       <motion.button
         className="fixed top-2 right-2 sm:top-4 sm:right-4 p-2 rounded-full bg-gray-200 dark:bg-gray-800 text-gray-800 dark:text-gray-200 z-10"
@@ -232,7 +232,7 @@ const QRCodeGenerator: React.FC = () => {
               >
                 <QRCode
                   value={input}
-                  size={qrSize}
+                  size={options.size}
                   bgColor={options.bgColor}
                   fgColor={options.fgColor}
                 />
