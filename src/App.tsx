@@ -10,19 +10,14 @@ import {
   MdOutlineLightMode,
   MdFileDownload,
   MdHistory,
-  MdQrCodeScanner,
   MdSave,
   MdDelete,
   MdEdit,
-  MdShare,
   MdClose,
   MdAdd,
   MdCheck,
   MdChevronLeft,
 } from "react-icons/md";
-import { Html5QrcodeScanner } from "html5-qrcode";
-import { saveAs } from "file-saver";
-import jsPDF from "jspdf";
 import "./index.css";
 
 type Mode = "text" | "link" | "email" | "phone" | "sms" | "wifi" | "vcard";
@@ -68,24 +63,22 @@ const QRCodeGenerator: React.FC = () => {
   const [options, setOptions] = useState<QRCodeOptions>(DEFAULT_OPTIONS);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [savedQRCodes, setSavedQRCodes] = useState<SavedQRCode[]>([]);
-  const [showScanner, setShowScanner] = useState(false);
-  const [scanResult, setScanResult] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [qrName, setQrName] = useState<string>("");
-  const [activeTab, setActiveTab] = useState<string>("generate");
   const [advancedMode, setAdvancedMode] = useState(false);
   const [logoFile, setLogoFile] = useState<File | null>(null);
-  const [showDownloadOptions, setShowDownloadOptions] = useState(false);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [showTooltip, setShowTooltip] = useState<string | null>(null);
   const [errorCorrectionOpen, setErrorCorrectionOpen] = useState(false);
   const [qrStyleOpen, setQrStyleOpen] = useState(false);
+  const [downloadStatus, setDownloadStatus] = useState<
+    "idle" | "downloading" | "success" | "error"
+  >("idle");
 
-  const scannerRef = useRef<HTMLDivElement>(null);
   const qrCodeRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const downloadOptionsRef = useRef<HTMLDivElement>(null);
   const saveDialogRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // Form fields for different modes
   const [emailFields, setEmailFields] = useState({
@@ -114,12 +107,6 @@ const QRCodeGenerator: React.FC = () => {
   // Handle clicks outside of modals
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (
-        downloadOptionsRef.current &&
-        !downloadOptionsRef.current.contains(event.target as Node)
-      ) {
-        setShowDownloadOptions(false);
-      }
       if (
         saveDialogRef.current &&
         !saveDialogRef.current.contains(event.target as Node)
@@ -245,58 +232,104 @@ END:VCARD`;
     setTheme((prevTheme) => (prevTheme === "light" ? "dark" : "light"));
   };
 
-  const startScanner = () => {
-    if (scannerRef.current) {
-      const html5QrcodeScanner = new Html5QrcodeScanner(
-        "scanner",
-        { fps: 10, qrbox: { width: 250, height: 250 } },
-        /* verbose= */ false
-      );
-      html5QrcodeScanner.render((decodedText) => {
-        setScanResult(decodedText);
-        html5QrcodeScanner.clear();
-        setShowScanner(false);
-      }, console.error);
+  const downloadQRCode = () => {
+    if (!qrCodeRef.current) return;
+
+    setDownloadStatus("downloading");
+
+    try {
+      // Get the QR code SVG element
+      const svgElement = qrCodeRef.current.querySelector("svg");
+      const canvas = qrCodeRef.current.querySelector("canvas");
+
+      if (canvas) {
+        // If we have a canvas element (from QRCodeCanvas), use it directly
+        downloadFromCanvas(canvas);
+      } else if (svgElement) {
+        // If we have an SVG element (from QRCode), convert it to canvas first
+        convertSvgToCanvas(svgElement);
+      } else {
+        console.error("No QR code element found");
+        setDownloadStatus("error");
+      }
+    } catch (error) {
+      console.error("Error in download process:", error);
+      setDownloadStatus("error");
     }
   };
 
-  const downloadQRCode = (format: "png" | "svg" | "pdf" = "png") => {
-    if (!qrCodeRef.current) return;
+  const convertSvgToCanvas = (svgElement: SVGElement) => {
+    // Get the SVG data
+    const svgData = new XMLSerializer().serializeToString(svgElement);
+    const svgSize = options.size;
 
-    const canvas = qrCodeRef.current.querySelector("canvas");
-    if (!canvas) return;
+    // Create a canvas element
+    const canvas = document.createElement("canvas");
+    canvas.width = svgSize;
+    canvas.height = svgSize;
+    canvasRef.current = canvas;
 
-    if (format === "svg") {
-      const svgData = new XMLSerializer().serializeToString(canvas);
-      const svgBlob = new Blob([svgData], {
-        type: "image/svg+xml;charset=utf-8",
-      });
-      saveAs(svgBlob, "qrcode.svg");
-    } else if (format === "pdf") {
-      const imgData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF({
-        orientation: "portrait",
-        unit: "mm",
-        format: "a4",
-      });
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const imgWidth = 100;
-      const imgHeight = 100;
-      const x = (pdfWidth - imgWidth) / 2;
-      const y = 20;
-
-      pdf.text("Your QR Code", pdfWidth / 2, 10, { align: "center" });
-      pdf.addImage(imgData, "PNG", x, y, imgWidth, imgHeight);
-      pdf.save("qrcode.pdf");
-    } else {
-      canvas.toBlob((blob) => {
-        if (blob) {
-          saveAs(blob, "qrcode.png");
-        }
-      });
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      console.error("Could not get canvas context");
+      setDownloadStatus("error");
+      return;
     }
 
-    setShowDownloadOptions(false);
+    // Create an image to draw on canvas
+    const img = new Image();
+    img.onload = () => {
+      // Fill with white background (in case of transparency)
+      ctx.fillStyle = options.bgColor;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Draw the SVG image on the canvas
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      // Download the canvas as PNG
+      downloadFromCanvas(canvas);
+    };
+
+    img.onerror = (error) => {
+      console.error("Error loading SVG image:", error);
+      setDownloadStatus("error");
+    };
+
+    // Set the source of the image to the SVG data
+    img.src =
+      "data:image/svg+xml;base64," +
+      btoa(unescape(encodeURIComponent(svgData)));
+  };
+
+  const downloadFromCanvas = (canvas: HTMLCanvasElement) => {
+    try {
+      // Create a temporary link element
+      const link = document.createElement("a");
+
+      // Set the download attribute and file name
+      link.download = "qrcode.png";
+
+      // Convert canvas to data URL
+      link.href = canvas.toDataURL("image/png");
+
+      // Append to body, click, and remove
+      document.body.appendChild(link);
+      link.click();
+
+      // Clean up
+      setTimeout(() => {
+        document.body.removeChild(link);
+        setDownloadStatus("success");
+
+        // Reset status after a delay
+        setTimeout(() => {
+          setDownloadStatus("idle");
+        }, 2000);
+      }, 100);
+    } catch (error) {
+      console.error("Error downloading from canvas:", error);
+      setDownloadStatus("error");
+    }
   };
 
   const saveQRCode = () => {
@@ -325,38 +358,6 @@ END:VCARD`;
     setInput(saved.input);
     setOptions(saved.options);
     setShowHistory(false);
-  };
-
-  const shareQRCode = async () => {
-    if (!qrCodeRef.current) return;
-
-    try {
-      const canvas = qrCodeRef.current.querySelector("canvas");
-      if (!canvas) return;
-
-      canvas.toBlob(async (blob) => {
-        if (!blob) return;
-
-        if (navigator.share) {
-          const file = new File([blob], "qrcode.png", { type: "image/png" });
-          await navigator.share({
-            title: "QR Code",
-            text: "Check out this QR code I created!",
-            files: [file],
-          });
-        } else {
-          // Fallback for browsers that don't support Web Share API
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = "qrcode.png";
-          a.click();
-          URL.revokeObjectURL(url);
-        }
-      }, "image/png");
-    } catch (error) {
-      console.error("Error sharing QR code:", error);
-    }
   };
 
   const handleLogoUpload = () => {
@@ -870,219 +871,238 @@ END:VCARD`;
             </button>
             <Tooltip id="history" text="View saved QR codes" />
           </div>
-
-          <div className="relative">
-            <button
-              className="p-2 rounded-full bg-gray-200 dark:bg-gray-800 text-gray-800 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              onClick={() => {
-                setShowScanner(true);
-                setTimeout(startScanner, 500);
-              }}
-              onMouseEnter={() => setShowTooltip("scanner")}
-              onMouseLeave={() => setShowTooltip(null)}
-            >
-              <MdQrCodeScanner size={20} />
-              <span className="sr-only">Scan QR code</span>
-            </button>
-            <Tooltip id="scanner" text="Scan QR code" />
-          </div>
         </div>
       </motion.div>
 
-      <div className="mb-4">
-        <div className="flex border-b border-gray-200 dark:border-gray-700">
-          <button
-            className={`py-2 px-4 font-medium text-sm focus:outline-none ${
-              activeTab === "generate"
-                ? "border-b-2 border-blue-500 text-blue-600 dark:text-blue-400"
-                : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
-            }`}
-            onClick={() => setActiveTab("generate")}
-          >
-            Generate
-          </button>
-          <button
-            className={`py-2 px-4 font-medium text-sm focus:outline-none ${
-              activeTab === "scan"
-                ? "border-b-2 border-blue-500 text-blue-600 dark:text-blue-400"
-                : "text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
-            }`}
-            onClick={() => setActiveTab("scan")}
-          >
-            Scan
-          </button>
-        </div>
-      </div>
+      <div className="flex flex-col lg:flex-row gap-4 sm:gap-8">
+        {/* Left Panel - QR Code Options */}
+        <motion.div
+          className="w-full lg:w-1/2 space-y-4 sm:space-y-6"
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.5, delay: 0.2 }}
+        >
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4">
+            <h2 className="text-lg font-semibold mb-4 text-gray-900 dark:text-gray-100">
+              QR Code Type
+            </h2>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+              {(
+                [
+                  "text",
+                  "link",
+                  "email",
+                  "phone",
+                  "sms",
+                  "wifi",
+                  "vcard",
+                ] as const
+              ).map((option) => (
+                <motion.button
+                  key={option}
+                  onClick={() => setMode(option)}
+                  className={`py-2 px-3 rounded-md transition-colors text-sm ${
+                    mode === option
+                      ? "bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900"
+                      : "bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600"
+                  }`}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  {option.charAt(0).toUpperCase() + option.slice(1)}
+                </motion.button>
+              ))}
+            </div>
+          </div>
 
-      {activeTab === "generate" && (
-        <div className="flex flex-col lg:flex-row gap-4 sm:gap-8">
-          {/* Left Panel - QR Code Options */}
-          <motion.div
-            className="w-full lg:w-1/2 space-y-4 sm:space-y-6"
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.5, delay: 0.2 }}
-          >
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4">
-              <h2 className="text-lg font-semibold mb-4 text-gray-900 dark:text-gray-100">
-                QR Code Type
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4">
+            <h2 className="text-lg font-semibold mb-4 text-gray-900 dark:text-gray-100">
+              Content
+            </h2>
+            {renderInputFields()}
+          </div>
+
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                Customization
               </h2>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-                {(
-                  [
-                    "text",
-                    "link",
-                    "email",
-                    "phone",
-                    "sms",
-                    "wifi",
-                    "vcard",
-                  ] as const
-                ).map((option) => (
-                  <motion.button
-                    key={option}
-                    onClick={() => setMode(option)}
-                    className={`py-2 px-3 rounded-md transition-colors text-sm ${
-                      mode === option
-                        ? "bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900"
-                        : "bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600"
-                    }`}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                  >
-                    {option.charAt(0).toUpperCase() + option.slice(1)}
-                  </motion.button>
-                ))}
+              <div className="flex items-center gap-2">
+                <label
+                  htmlFor="advanced-mode"
+                  className="text-sm text-gray-700 dark:text-gray-300"
+                >
+                  Advanced
+                </label>
+                <Switch checked={advancedMode} onChange={setAdvancedMode} />
               </div>
             </div>
 
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4">
-              <h2 className="text-lg font-semibold mb-4 text-gray-900 dark:text-gray-100">
-                Content
-              </h2>
-              {renderInputFields()}
-            </div>
-
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-4">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                  Customization
-                </h2>
-                <div className="flex items-center gap-2">
-                  <label
-                    htmlFor="advanced-mode"
-                    className="text-sm text-gray-700 dark:text-gray-300"
-                  >
-                    Advanced
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Background
                   </label>
-                  <Switch checked={advancedMode} onChange={setAdvancedMode} />
+                  <input
+                    type="color"
+                    value={options.bgColor}
+                    onChange={(e) =>
+                      setOptions({ ...options, bgColor: e.target.value })
+                    }
+                    className="w-full h-10 rounded-md cursor-pointer"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Foreground
+                  </label>
+                  <input
+                    type="color"
+                    value={options.fgColor}
+                    onChange={(e) =>
+                      setOptions({ ...options, fgColor: e.target.value })
+                    }
+                    className="w-full h-10 rounded-md cursor-pointer"
+                  />
                 </div>
               </div>
 
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+              {advancedMode && (
+                <>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Background
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      QR Code Size
                     </label>
-                    <input
-                      type="color"
-                      value={options.bgColor}
-                      onChange={(e) =>
-                        setOptions({ ...options, bgColor: e.target.value })
+                    <Slider
+                      value={options.size}
+                      min={128}
+                      max={512}
+                      step={8}
+                      onChange={(value) =>
+                        setOptions({ ...options, size: value })
                       }
-                      className="w-full h-10 rounded-md cursor-pointer"
                     />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Foreground
-                    </label>
-                    <input
-                      type="color"
-                      value={options.fgColor}
-                      onChange={(e) =>
-                        setOptions({ ...options, fgColor: e.target.value })
-                      }
-                      className="w-full h-10 rounded-md cursor-pointer"
-                    />
-                  </div>
-                </div>
-
-                {advancedMode && (
-                  <>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        QR Code Size
-                      </label>
-                      <Slider
-                        value={options.size}
-                        min={128}
-                        max={512}
-                        step={8}
-                        onChange={(value) =>
-                          setOptions({ ...options, size: value })
-                        }
-                      />
-                      <div className="text-xs text-right text-gray-500 dark:text-gray-400 mt-1">
-                        {options.size}px
-                      </div>
+                    <div className="text-xs text-right text-gray-500 dark:text-gray-400 mt-1">
+                      {options.size}px
                     </div>
+                  </div>
 
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Error Correction
-                      </label>
-                      <div className="relative">
-                        <button
-                          type="button"
-                          className="relative w-full bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm pl-3 pr-10 py-2 text-left cursor-default focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                          onClick={() =>
-                            setErrorCorrectionOpen(!errorCorrectionOpen)
-                          }
-                        >
-                          <span className="block truncate">
-                            {options.errorCorrectionLevel === "L" && "Low (7%)"}
-                            {options.errorCorrectionLevel === "M" &&
-                              "Medium (15%)"}
-                            {options.errorCorrectionLevel === "Q" &&
-                              "Quartile (25%)"}
-                            {options.errorCorrectionLevel === "H" &&
-                              "High (30%)"}
-                          </span>
-                          <span className="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
-                            <MdChevronLeft
-                              className="h-5 w-5 text-gray-400"
-                              aria-hidden="true"
-                            />
-                          </span>
-                        </button>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Error Correction
+                    </label>
+                    <div className="relative">
+                      <button
+                        type="button"
+                        className="relative w-full bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm pl-3 pr-10 py-2 text-left cursor-default focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                        onClick={() =>
+                          setErrorCorrectionOpen(!errorCorrectionOpen)
+                        }
+                      >
+                        <span className="block truncate">
+                          {options.errorCorrectionLevel === "L" && "Low (7%)"}
+                          {options.errorCorrectionLevel === "M" &&
+                            "Medium (15%)"}
+                          {options.errorCorrectionLevel === "Q" &&
+                            "Quartile (25%)"}
+                          {options.errorCorrectionLevel === "H" && "High (30%)"}
+                        </span>
+                        <span className="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
+                          <MdChevronLeft
+                            className="h-5 w-5 text-gray-400"
+                            aria-hidden="true"
+                          />
+                        </span>
+                      </button>
 
-                        {errorCorrectionOpen && (
-                          <div className="absolute z-10 mt-1 w-full bg-white dark:bg-gray-700 shadow-lg max-h-60 rounded-md py-1 text-base ring-1 ring-black ring-opacity-5 overflow-auto focus:outline-none sm:text-sm">
-                            {(["L", "M", "Q", "H"] as const).map((level) => (
+                      {errorCorrectionOpen && (
+                        <div className="absolute z-10 mt-1 w-full bg-white dark:bg-gray-700 shadow-lg max-h-60 rounded-md py-1 text-base ring-1 ring-black ring-opacity-5 overflow-auto focus:outline-none sm:text-sm">
+                          {(["L", "M", "Q", "H"] as const).map((level) => (
+                            <button
+                              key={level}
+                              className={`${
+                                options.errorCorrectionLevel === level
+                                  ? "text-white bg-blue-600"
+                                  : "text-gray-900 dark:text-gray-100"
+                              } cursor-default select-none relative py-2 pl-3 pr-9 w-full text-left hover:bg-gray-100 dark:hover:bg-gray-600`}
+                              onClick={() => {
+                                setOptions({
+                                  ...options,
+                                  errorCorrectionLevel: level,
+                                });
+                                setErrorCorrectionOpen(false);
+                              }}
+                            >
+                              <span className="block truncate">
+                                {level === "L" && "Low (7%)"}
+                                {level === "M" && "Medium (15%)"}
+                                {level === "Q" && "Quartile (25%)"}
+                                {level === "H" && "High (30%)"}
+                              </span>
+                              {options.errorCorrectionLevel === level && (
+                                <span className="absolute inset-y-0 right-0 flex items-center pr-4">
+                                  <MdCheck
+                                    className="h-5 w-5"
+                                    aria-hidden="true"
+                                  />
+                                </span>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      Higher correction allows for more damage to the QR code
+                      while remaining scannable.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      QR Style
+                    </label>
+                    <div className="relative">
+                      <button
+                        type="button"
+                        className="relative w-full bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm pl-3 pr-10 py-2 text-left cursor-default focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                        onClick={() => setQrStyleOpen(!qrStyleOpen)}
+                      >
+                        <span className="block truncate">
+                          {options.style === "squares" && "Squares"}
+                          {options.style === "dots" && "Dots"}
+                          {options.style === "rounded" && "Rounded"}
+                        </span>
+                        <span className="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
+                          <MdChevronLeft
+                            className="h-5 w-5 text-gray-400"
+                            aria-hidden="true"
+                          />
+                        </span>
+                      </button>
+
+                      {qrStyleOpen && (
+                        <div className="absolute z-10 mt-1 w-full bg-white dark:bg-gray-700 shadow-lg max-h-60 rounded-md py-1 text-base ring-1 ring-black ring-opacity-5 overflow-auto focus:outline-none sm:text-sm">
+                          {(["squares", "dots", "rounded"] as const).map(
+                            (style) => (
                               <button
-                                key={level}
+                                key={style}
                                 className={`${
-                                  options.errorCorrectionLevel === level
+                                  options.style === style
                                     ? "text-white bg-blue-600"
                                     : "text-gray-900 dark:text-gray-100"
                                 } cursor-default select-none relative py-2 pl-3 pr-9 w-full text-left hover:bg-gray-100 dark:hover:bg-gray-600`}
                                 onClick={() => {
-                                  setOptions({
-                                    ...options,
-                                    errorCorrectionLevel: level,
-                                  });
-                                  setErrorCorrectionOpen(false);
+                                  setOptions({ ...options, style: style });
+                                  setQrStyleOpen(false);
                                 }}
                               >
                                 <span className="block truncate">
-                                  {level === "L" && "Low (7%)"}
-                                  {level === "M" && "Medium (15%)"}
-                                  {level === "Q" && "Quartile (25%)"}
-                                  {level === "H" && "High (30%)"}
+                                  {style.charAt(0).toUpperCase() +
+                                    style.slice(1)}
                                 </span>
-                                {options.errorCorrectionLevel === level && (
+                                {options.style === style && (
                                   <span className="absolute inset-y-0 right-0 flex items-center pr-4">
                                     <MdCheck
                                       className="h-5 w-5"
@@ -1091,356 +1111,208 @@ END:VCARD`;
                                   </span>
                                 )}
                               </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                        Higher correction allows for more damage to the QR code
-                        while remaining scannable.
-                      </p>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        QR Style
-                      </label>
-                      <div className="relative">
-                        <button
-                          type="button"
-                          className="relative w-full bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm pl-3 pr-10 py-2 text-left cursor-default focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                          onClick={() => setQrStyleOpen(!qrStyleOpen)}
-                        >
-                          <span className="block truncate">
-                            {options.style === "squares" && "Squares"}
-                            {options.style === "dots" && "Dots"}
-                            {options.style === "rounded" && "Rounded"}
-                          </span>
-                          <span className="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
-                            <MdChevronLeft
-                              className="h-5 w-5 text-gray-400"
-                              aria-hidden="true"
-                            />
-                          </span>
-                        </button>
-
-                        {qrStyleOpen && (
-                          <div className="absolute z-10 mt-1 w-full bg-white dark:bg-gray-700 shadow-lg max-h-60 rounded-md py-1 text-base ring-1 ring-black ring-opacity-5 overflow-auto focus:outline-none sm:text-sm">
-                            {(["squares", "dots", "rounded"] as const).map(
-                              (style) => (
-                                <button
-                                  key={style}
-                                  className={`${
-                                    options.style === style
-                                      ? "text-white bg-blue-600"
-                                      : "text-gray-900 dark:text-gray-100"
-                                  } cursor-default select-none relative py-2 pl-3 pr-9 w-full text-left hover:bg-gray-100 dark:hover:bg-gray-600`}
-                                  onClick={() => {
-                                    setOptions({ ...options, style: style });
-                                    setQrStyleOpen(false);
-                                  }}
-                                >
-                                  <span className="block truncate">
-                                    {style.charAt(0).toUpperCase() +
-                                      style.slice(1)}
-                                  </span>
-                                  {options.style === style && (
-                                    <span className="absolute inset-y-0 right-0 flex items-center pr-4">
-                                      <MdCheck
-                                        className="h-5 w-5"
-                                        aria-hidden="true"
-                                      />
-                                    </span>
-                                  )}
-                                </button>
-                              )
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Include Margin
-                      </label>
-                      <div className="flex items-center">
-                        <Switch
-                          checked={options.includeMargin}
-                          onChange={(checked) =>
-                            setOptions({ ...options, includeMargin: checked })
-                          }
-                        />
-                        <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">
-                          {options.includeMargin ? "Yes" : "No"}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Logo
-                      </label>
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          onClick={handleLogoUpload}
-                        >
-                          <MdAdd className="inline-block mr-1" /> Add Logo
-                        </button>
-
-                        {options.logoImage && (
-                          <button
-                            className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            onClick={removeLogo}
-                          >
-                            <MdDelete className="inline-block mr-1" /> Remove
-                            Logo
-                          </button>
-                        )}
-
-                        <input
-                          type="file"
-                          ref={fileInputRef}
-                          accept="image/*"
-                          className="hidden"
-                          onChange={(e) => {
-                            if (e.target.files && e.target.files[0]) {
-                              setLogoFile(e.target.files[0]);
-                            }
-                          }}
-                        />
-                      </div>
-
-                      {options.logoImage && (
-                        <div className="mt-2">
-                          <div className="flex items-center gap-4 mt-2">
-                            <img
-                              src={options.logoImage || "/placeholder.svg"}
-                              alt="Logo"
-                              className="w-12 h-12 object-contain border rounded"
-                            />
-                            <div className="flex-1">
-                              <label className="text-xs text-gray-700 dark:text-gray-300">
-                                Logo Size
-                              </label>
-                              <Slider
-                                value={options.logoWidth}
-                                min={20}
-                                max={150}
-                                step={5}
-                                onChange={(value) =>
-                                  setOptions({
-                                    ...options,
-                                    logoWidth: value,
-                                    logoHeight: value,
-                                  })
-                                }
-                              />
-                              <div className="text-xs text-right text-gray-500 dark:text-gray-400">
-                                {options.logoWidth}px
-                              </div>
-                            </div>
-                          </div>
-                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                            Use high error correction when adding a logo
-                          </p>
+                            )
+                          )}
                         </div>
                       )}
                     </div>
-                  </>
-                )}
-              </div>
-            </div>
-          </motion.div>
-
-          {/* Right Panel - QR Code Preview */}
-          <motion.div
-            className="w-full lg:w-1/2 flex flex-col items-center justify-start"
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.5, delay: 0.4 }}
-          >
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 w-full">
-              <h2 className="text-lg font-semibold mb-4 text-center text-gray-900 dark:text-gray-100">
-                Preview
-              </h2>
-
-              <div className="flex flex-col items-center">
-                <AnimatePresence mode="wait">
-                  {getQRValue() && (
-                    <motion.div
-                      key="qr-code"
-                      initial={{ scale: 0.8, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      exit={{ scale: 0.8, opacity: 0 }}
-                      transition={{ duration: 0.3 }}
-                      className="bg-white dark:bg-gray-700 p-4 rounded-lg shadow-lg mb-4"
-                      ref={qrCodeRef}
-                    >
-                      {advancedMode ? (
-                        <QRCodeCanvas
-                          value={getQRValue()}
-                          size={options.size}
-                          bgColor={options.bgColor}
-                          fgColor={options.fgColor}
-                          level={options.errorCorrectionLevel}
-                          includeMargin={options.includeMargin}
-                          imageSettings={
-                            options.logoImage
-                              ? {
-                                  src: options.logoImage,
-                                  x: undefined,
-                                  y: undefined,
-                                  height: options.logoHeight,
-                                  width: options.logoWidth,
-                                  excavate: true,
-                                }
-                              : undefined
-                          }
-                        />
-                      ) : (
-                        <QRCode
-                          value={getQRValue()}
-                          size={options.size}
-                          bgColor={options.bgColor}
-                          fgColor={options.fgColor}
-                        />
-                      )}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-
-                {!getQRValue() && (
-                  <div className="text-center text-gray-500 dark:text-gray-400 mb-4">
-                    Enter content to generate a QR code
                   </div>
-                )}
 
-                {getQRValue() && (
-                  <div className="w-full space-y-4">
-                    <div className="flex flex-wrap gap-2 justify-center">
-                      <div className="relative">
-                        <button
-                          className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                          onClick={() =>
-                            setShowDownloadOptions(!showDownloadOptions)
-                          }
-                        >
-                          <MdFileDownload className="mr-2" /> Download
-                        </button>
-
-                        {showDownloadOptions && (
-                          <div
-                            ref={downloadOptionsRef}
-                            className="absolute z-10 mt-2 w-48 bg-white dark:bg-gray-800 rounded-md shadow-lg py-1 ring-1 ring-black ring-opacity-5 focus:outline-none"
-                          >
-                            <button
-                              className="block w-full px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 text-left"
-                              onClick={() => downloadQRCode("png")}
-                            >
-                              Download as PNG
-                            </button>
-                            <button
-                              className="block w-full px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 text-left"
-                              onClick={() => downloadQRCode("svg")}
-                            >
-                              Download as SVG
-                            </button>
-                            <button
-                              className="block w-full px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 text-left"
-                              onClick={() => downloadQRCode("pdf")}
-                            >
-                              Download as PDF
-                            </button>
-                          </div>
-                        )}
-                      </div>
-
-                      <button
-                        className="flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                        onClick={shareQRCode}
-                      >
-                        <MdShare className="mr-2" /> Share
-                      </button>
-
-                      <button
-                        className="flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                        onClick={() => setShowSaveDialog(true)}
-                      >
-                        <MdSave className="mr-2" /> Save
-                      </button>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Include Margin
+                    </label>
+                    <div className="flex items-center">
+                      <Switch
+                        checked={options.includeMargin}
+                        onChange={(checked) =>
+                          setOptions({ ...options, includeMargin: checked })
+                        }
+                      />
+                      <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">
+                        {options.includeMargin ? "Yes" : "No"}
+                      </span>
                     </div>
                   </div>
-                )}
-              </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Logo
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        onClick={handleLogoUpload}
+                      >
+                        <MdAdd className="inline-block mr-1" /> Add Logo
+                      </button>
+
+                      {options.logoImage && (
+                        <button
+                          className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          onClick={removeLogo}
+                        >
+                          <MdDelete className="inline-block mr-1" /> Remove Logo
+                        </button>
+                      )}
+
+                      <input
+                        type="file"
+                        ref={fileInputRef}
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          if (e.target.files && e.target.files[0]) {
+                            setLogoFile(e.target.files[0]);
+                          }
+                        }}
+                      />
+                    </div>
+
+                    {options.logoImage && (
+                      <div className="mt-2">
+                        <div className="flex items-center gap-4 mt-2">
+                          <img
+                            src={options.logoImage || "/placeholder.svg"}
+                            alt="Logo"
+                            className="w-12 h-12 object-contain border rounded"
+                          />
+                          <div className="flex-1">
+                            <label className="text-xs text-gray-700 dark:text-gray-300">
+                              Logo Size
+                            </label>
+                            <Slider
+                              value={options.logoWidth}
+                              min={20}
+                              max={150}
+                              step={5}
+                              onChange={(value) =>
+                                setOptions({
+                                  ...options,
+                                  logoWidth: value,
+                                  logoHeight: value,
+                                })
+                              }
+                            />
+                            <div className="text-xs text-right text-gray-500 dark:text-gray-400">
+                              {options.logoWidth}px
+                            </div>
+                          </div>
+                        </div>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          Use high error correction when adding a logo
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
-          </motion.div>
-        </div>
-      )}
+          </div>
+        </motion.div>
 
-      {activeTab === "scan" && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
-          <h2 className="text-lg font-semibold mb-4 text-center text-gray-900 dark:text-gray-100">
-            Scan QR Code
-          </h2>
+        {/* Right Panel - QR Code Preview */}
+        <motion.div
+          className="w-full lg:w-1/2 flex flex-col items-center justify-start"
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.5, delay: 0.4 }}
+        >
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 w-full">
+            <h2 className="text-lg font-semibold mb-4 text-center text-gray-900 dark:text-gray-100">
+              Preview
+            </h2>
 
-          <div className="flex flex-col items-center">
-            <div
-              id="scanner"
-              ref={scannerRef}
-              className="w-full max-w-md h-64 bg-gray-100 dark:bg-gray-700 rounded-lg overflow-hidden mb-4"
-            >
-              {!showScanner && (
-                <div className="h-full flex items-center justify-center">
-                  <button
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                    onClick={() => {
-                      setShowScanner(true);
-                      setTimeout(startScanner, 500);
-                    }}
+            <div className="flex flex-col items-center">
+              <AnimatePresence mode="wait">
+                {getQRValue() && (
+                  <motion.div
+                    key="qr-code"
+                    initial={{ scale: 0.8, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.8, opacity: 0 }}
+                    transition={{ duration: 0.3 }}
+                    className="bg-white dark:bg-gray-700 p-4 rounded-lg shadow-lg mb-4"
+                    ref={qrCodeRef}
                   >
-                    <MdQrCodeScanner className="inline-block mr-2" /> Start
-                    Scanner
-                  </button>
+                    {advancedMode ? (
+                      <QRCodeCanvas
+                        value={getQRValue()}
+                        size={options.size}
+                        bgColor={options.bgColor}
+                        fgColor={options.fgColor}
+                        level={options.errorCorrectionLevel}
+                        includeMargin={options.includeMargin}
+                        imageSettings={
+                          options.logoImage
+                            ? {
+                                src: options.logoImage,
+                                x: undefined,
+                                y: undefined,
+                                height: options.logoHeight,
+                                width: options.logoWidth,
+                                excavate: true,
+                              }
+                            : undefined
+                        }
+                      />
+                    ) : (
+                      <QRCode
+                        value={getQRValue()}
+                        size={options.size}
+                        bgColor={options.bgColor}
+                        fgColor={options.fgColor}
+                      />
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {!getQRValue() && (
+                <div className="text-center text-gray-500 dark:text-gray-400 mb-4">
+                  Enter content to generate a QR code
+                </div>
+              )}
+
+              {getQRValue() && (
+                <div className="w-full space-y-4">
+                  <div className="flex flex-wrap gap-2 justify-center">
+                    <button
+                      className={`flex items-center px-4 py-2 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                        downloadStatus === "downloading"
+                          ? "bg-blue-400 text-white cursor-wait"
+                          : downloadStatus === "success"
+                          ? "bg-green-600 text-white"
+                          : downloadStatus === "error"
+                          ? "bg-red-600 text-white"
+                          : "bg-blue-600 text-white hover:bg-blue-700"
+                      }`}
+                      onClick={downloadQRCode}
+                      disabled={downloadStatus === "downloading"}
+                    >
+                      <MdFileDownload className="mr-2" />
+                      {downloadStatus === "downloading"
+                        ? "Downloading..."
+                        : downloadStatus === "success"
+                        ? "Downloaded!"
+                        : downloadStatus === "error"
+                        ? "Try Again"
+                        : "Download "}
+                    </button>
+
+                    <button
+                      className="flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                      onClick={() => setShowSaveDialog(true)}
+                    >
+                      <MdSave className="mr-2" /> Save
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
-
-            {scanResult && (
-              <div className="w-full max-w-md">
-                <h3 className="font-medium mb-2 text-gray-900 dark:text-gray-100">
-                  Scan Result:
-                </h3>
-                <div className="p-3 bg-gray-100 dark:bg-gray-700 rounded-md break-all">
-                  {scanResult}
-                </div>
-                <div className="mt-4 flex gap-2">
-                  <button
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                    onClick={() => {
-                      setInput(scanResult);
-                      setActiveTab("generate");
-                    }}
-                  >
-                    Generate QR from Result
-                  </button>
-                  <button
-                    className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                    onClick={() => {
-                      setScanResult(null);
-                      setShowScanner(true);
-                      setTimeout(startScanner, 500);
-                    }}
-                  >
-                    Scan Again
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
-        </div>
-      )}
+        </motion.div>
+      </div>
 
       {/* Save Dialog */}
       {showSaveDialog && (
