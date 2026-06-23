@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Lexend:wght@100..900&display=swap");
+
 :root {
   --bg-color: #ffffff;
   --text-color: #333333;
@@ -7,6 +9,55 @@
   --button-text: #333333;
   --button-active-bg: #2196f3;
   --button-active-text: #ffffff;
+}
+
+.lexend-100 {
+  font-family: "Lexend", sans-serif;
+  font-optical-sizing: auto;
+  font-weight: 100;
+  font-style: normal;
+}
+
+.lexend-200 {
+  font-family: "Lexend", sans-serif;
+  font-optical-sizing: auto;
+  font-weight: 200;
+  font-style: normal;
+}
+
+.lexend-300 {
+  font-family: "Lexend", sans-serif;
+  font-optical-sizing: auto;
+  font-weight: 300;
+  font-style: normal;
+}
+
+.lexend-400 {
+  font-family: "Lexend", sans-serif;
+  font-optical-sizing: auto;
+  font-weight: 400;
+  font-style: normal;
+}
+
+.lexend-500 {
+  font-family: "Lexend", sans-serif;
+  font-optical-sizing: auto;
+  font-weight: 500;
+  font-style: normal;
+}
+
+.lexend-600 {
+  font-family: "Lexend", sans-serif;
+  font-optical-sizing: auto;
+  font-weight: 600;
+  font-style: normal;
+}
+
+.lexend-700 {
+  font-family: "Lexend", sans-serif;
+  font-optical-sizing: auto;
+  font-weight: 700;
+  font-style: normal;
 }
 
 [data-theme="dark"] {
@@ -21,10 +72,12 @@
 }
 
 body {
-  font-family: "Arial", sans-serif;
+  font-family: "Lexend", sans-serif;
   background-color: var(--bg-color);
   color: var(--text-color);
-  transition: background-color 0.3s, color 0.3s;
+  transition:
+    background-color 0.3s,
+    color 0.3s;
 }
 
 .container {
@@ -86,7 +139,9 @@ body {
   background-color: var(--button-bg);
   color: var(--button-text);
   cursor: pointer;
-  transition: background-color 0.3s, color 0.3s;
+  transition:
+    background-color 0.3s,
+    color 0.3s;
 }
 
 .mode-button.active {
