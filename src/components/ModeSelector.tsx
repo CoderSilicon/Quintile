@@ -24,7 +24,7 @@ export default function ModeSelector({ mode, setMode }: ModeSelectorProps) {
 
   return (
     <div className="flex flex-col space-y-4">
-      <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+      <h2 className="text-xs tracking-widest text-slate-500 dark:text-slate-400 lexend-400">
         1. Select Type
       </h2>
       
@@ -46,7 +46,7 @@ export default function ModeSelector({ mode, setMode }: ModeSelectorProps) {
               <span className={isActive ? "opacity-100" : "opacity-70"}>
                 {ICONS[opt]}
               </span>
-              <span className="capitalize font-medium">{opt}</span>
+              <span className="capitalize lexend-400">{opt}</span>
             </button>
           );
         })}

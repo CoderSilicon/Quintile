@@ -6,13 +6,13 @@ interface InputFieldsProps {
   onValueChange: (value: string) => void;
 }
 
-const InputClass = "w-full px-3 py-2 bg-transparent border border-slate-200 dark:border-slate-800 rounded-lg focus:outline-none focus:border-slate-900 dark:focus:border-slate-100 transition-colors text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400";
+const InputClass = "w-full px-3 py-2 bg-transparent border border-slate-200 dark:border-slate-800 rounded-lg focus:outline-none focus:border-slate-900 dark:focus:border-slate-100 transition-colors text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 lexend-300";
 const SelectClass = "w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg focus:outline-none focus:border-slate-900 dark:focus:border-slate-100 transition-colors text-sm text-slate-900 dark:text-slate-100";
 const LabelClass = "block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5";
 
 export default function InputFields({ mode, onValueChange }: InputFieldsProps) {
   // State definitions for all modes
-  const [basicInput, setBasicInput] = useState("https://quintile.com");
+  const [basicInput, setBasicInput] = useState("https://quintile.vercel.app");
   const [emailFields, setEmailFields] = useState({ to: "", subject: "", body: "" });
   const [phoneField, setPhoneField] = useState("");
   const [smsFields, setSmsFields] = useState({ phone: "", message: "" });
@@ -31,7 +31,7 @@ export default function InputFields({ mode, onValueChange }: InputFieldsProps) {
     let finalValue = "";
     switch (mode) {
       case "text":
-        finalValue = basicInput;
+        finalValue = `TEXT:${basicInput}`;
         break;
       case "link":
         finalValue = basicInput.startsWith("http") ? basicInput : `https://${basicInput}`;
@@ -69,7 +69,7 @@ export default function InputFields({ mode, onValueChange }: InputFieldsProps) {
 
   return (
     <div className="flex flex-col space-y-4">
-      <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+      <h2 className="text-xs tracking-widest text-slate-500 dark:text-slate-400 lexend-400">
         2. Enter Details
       </h2>
       

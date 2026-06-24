@@ -15,10 +15,7 @@ export default function Header({ theme, toggleTheme }: HeaderProps) {
       animate={{ opacity: 1, y: 0 }}
     >
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 bg-indigo-500 rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-indigo-500/30">
-          
-        </div>
-        <h1 className="text-2xl tracking-tight lexend-700">Quintile</h1>
+        <img src="/logo.svg" alt="" className="dark:invert h-12 w-12" />
       </div>
       <div className="flex items-center gap-2">
         <button
